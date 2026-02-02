@@ -1,19 +1,108 @@
 services:
-
-  npm:
-    image: jc21/nginx-proxy-manager:latest
-    container_name: npm
+  # =========================
+  # PostgreSQL
+  # =========================
+  postgres:
+    image: postgres:16-alpine
+    container_name: local_postgres
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "81:81"
-      - "443:443"
+    environment:
+      POSTGRES_USER: n8n_user
+      POSTGRES_PASSWORD: n8n_user_pass
+      POSTGRES_DB: n8n_db
     volumes:
-      - npm_data:/data
-      - npm_letsencrypt:/etc/letsencrypt
-    networks:
-      - red_agencia_global
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n_user -d n8n_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
+  # =========================
+  # Redis
+  # =========================
+  redis:
+    image: redis:7.2-alpine
+    container_name: local_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+
+  # =========================
+  # n8n
+  # =========================
+  n8n:
+    image: n8nio/n8n:1.73.0
+    container_name: local_n8n
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n_db
+      DB_POSTGRESDB_USER: n8n_user
+      DB_POSTGRESDB_PASSWORD: n8n_user_pass
+
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: admin123
+
+      N8N_ENCRYPTION_KEY: local_encryption_key_123
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678
+      GENERIC_TIMEZONE: America/Guayaquil
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  # =========================
+  # Evolution API
+  # =========================
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: local_evolution
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      AUTHENTICATION_API_KEY: 9P30CB28DRB5
+
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgres://n8n_user:n8n_user_pass@postgres:5432/n8n_db?sslmode=disable
+
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://redis:6379
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_LOCAL_ENABLED: "false"
+
+      DELAY_MESSAGES: "true"
+      WA_BUSINESS_TOKEN_NOT_REQUIRED: "true"
+      CONFIG_SESSION_PHONE_VERSION: 2.3000.1028355510
+    ports:
+      - "8080:8080"
+    volumes:
+      - evolution_data:/evolution/instances
+
+  # =========================
+  # Web estática (NGINX)
+  # =========================
   web:
     build:
       context: ./web
@@ -23,26 +112,12 @@ services:
     restart: unless-stopped
     ports:
       - "8081:80"
-    networks:
-      - red_agencia_global
-
-  n8n:
-    image: n8nio/n8n:latest
-    container_name: shop_n8n
-    restart: unless-stopped
-    ports:
-      - "5678:5678"
-    volumes:
-      - n8n_data:/home/node/.n8n
-    networks:
-      - red_agencia_global
+    
 
 volumes:
-  npm_data:
-  npm_letsencrypt:
+  postgres_data:
+  redis_data:
   n8n_data:
-
-networks:
-  red_agencia_global:
-    external: true
+  evolution_data:
+  web_data:
 
