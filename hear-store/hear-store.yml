@@ -1,0 +1,95 @@
+version: "3.9"
+
+services:
+  # =========================
+  # PostgreSQL _CHS
+  # =========================
+  postgres_CHS:
+    image: postgres:16-alpine
+    container_name: postgres_CHS
+    restart: always
+    environment:
+      - POSTGRES_USER=n8n_user
+      - POSTGRES_PASSWORD=n8n_user_pass
+      - POSTGRES_DB=n8n_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data_CHS:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n8n_user -d n8n_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # =========================
+  # Redis _CHS
+  # =========================
+  redis_CHS:
+    image: redis:6.2-alpine
+    container_name: redis_CHS
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data_CHS:/data
+
+  # =========================
+  # n8n _CHS
+  # =========================
+  n8n_CHS:
+    image: n8nio/n8n:latest
+    container_name: n8n_CHS
+    restart: always
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_DATABASE=n8n_db
+      - DB_POSTGRESDB_HOST=postgres_CHS
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=n8n_user
+      - DB_POSTGRESDB_PASSWORD=n8n_user_pass
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=luminaritm_pass
+    ports:
+      - "5679:5678" # Cambiado a 5679 para no chocar con el puerto por defecto
+    volumes:
+      - n8n_storage_CHS:/home/node/.n8n
+    depends_on:
+      postgres_CHS:
+        condition: service_healthy
+
+  # =========================
+  # Evolution API _CHS
+  # =========================
+  evolution_api_CHS:
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: evolution_api_CHS
+    restart: always
+    environment:
+      - AUTHENTICATION_API_KEY=9P30CB28DRB5
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgres://n8n_user:n8n_user_pass@postgres_CHS:5432/n8n_db?sslmode=disable
+      - CACHE_REDIS_ENABLED=true
+      - CACHE_REDIS_URI=redis://redis_CHS:6379
+      - CACHE_REDIS_PREFIX_KEY=evolution_CHS
+      - CACHE_LOCAL_ENABLED=false
+      - DELAY_MESSAGES=true
+      - WA_BUSINESS_TOKEN_NOT_REQUIRED=true
+      - CONFIG_SESSION_PHONE_VERSION=2.3000.1028355510
+    ports:
+      - "8081:8080" # Cambiado a 8081 para evitar el error de puerto ocupado
+    volumes:
+      - evolution_instances_CHS:/evolution/instances
+    depends_on:
+      - postgres_CHS
+      - redis_CHS
+
+# =========================
+# Volúmenes Nombrados _CHS
+# =========================
+volumes:
+  postgres_data_CHS:
+  redis_data_CHS:
+  n8n_storage_CHS:
+  evolution_instances_CHS:
